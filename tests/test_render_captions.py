@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 MODULE_PATH = Path(__file__).parents[1] / "helpers" / "render.py"
@@ -99,6 +100,19 @@ class SubtitlesPathTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as e:
                 render.resolve_subtitles_path("nope.srt", Path(d))
             self.assertIn("--no-subtitles", str(e.exception))
+
+    def test_filter_path_has_no_backslashes(self):
+        # ffmpeg's filter parser eats "\" as an escape, so a Windows path must reach it with "/" separators
+        with tempfile.TemporaryDirectory() as d:
+            edit = Path(d)
+            srt = edit / "master.srt"
+            srt.write_text("")
+            with patch.object(render.subprocess, "run") as run:
+                render.build_final_composite(edit / "base.mp4", [], srt, edit / "out.mp4", edit)
+            graph = run.call_args.args[0][run.call_args.args[0].index("-filter_complex") + 1]
+            path = graph.split("subtitles='", 1)[1].split("'", 1)[0]
+            self.assertNotIn("\\", path.replace("\\:", ""))
+            self.assertEqual(path.replace("\\:", ":"), srt.resolve().as_posix())
 
 
 if __name__ == "__main__":
