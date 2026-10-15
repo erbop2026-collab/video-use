@@ -3,8 +3,8 @@ import json
 import os
 import tempfile
 import unittest
-from pathlib import Path
-from unittest.mock import patch
+from pathlib import Path, PureWindowsPath
+from unittest.mock import Mock, patch
 
 
 MODULE_PATH = Path(__file__).parents[1] / "helpers" / "render.py"
@@ -102,17 +102,15 @@ class SubtitlesPathTests(unittest.TestCase):
             self.assertIn("--no-subtitles", str(e.exception))
 
     def test_filter_path_has_no_backslashes(self):
-        # ffmpeg's filter parser eats "\" as an escape, so a Windows path must reach it with "/" separators
-        with tempfile.TemporaryDirectory() as d:
-            edit = Path(d)
-            srt = edit / "master.srt"
-            srt.write_text("")
-            with patch.object(render.subprocess, "run") as run:
-                render.build_final_composite(edit / "base.mp4", [], srt, edit / "out.mp4", edit)
-            graph = run.call_args.args[0][run.call_args.args[0].index("-filter_complex") + 1]
-            path = graph.split("subtitles='", 1)[1].split("'", 1)[0]
-            self.assertNotIn("\\", path.replace("\\:", ""))
-            self.assertEqual(path.replace("\\:", ":"), srt.resolve().as_posix())
+        # ffmpeg's filter parser eats "\" as an escape, so a Windows path must reach it with "/" separators.
+        # A Windows path on every host, so reverting the fix fails here on Linux/macOS too, not only on Windows.
+        win_path = PureWindowsPath(r"C:\Users\me\edit's\master.srt")
+        srt = Mock(exists=Mock(return_value=True), resolve=Mock(return_value=win_path))
+        edit = Path(tempfile.gettempdir())
+        with patch.object(render.subprocess, "run") as run:
+            render.build_final_composite(edit / "base.mp4", [], srt, edit / "out.mp4", edit)
+        graph = run.call_args.args[0][run.call_args.args[0].index("-filter_complex") + 1]
+        self.assertIn(r"subtitles='C\:/Users/me/edit\'s/master.srt'", graph)
 
 
 if __name__ == "__main__":
